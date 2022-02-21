@@ -7,6 +7,7 @@ def input_file(path, sqlfile):
     for filename in glob.glob(input_file):
         os.remove(filename)
     main_file = os.path.join(path, sqlfile)
+    numb = 0
     with open(main_file) as f:
         all_lines = f.readlines()
         last_line_number = len(all_lines)
@@ -30,12 +31,14 @@ def input_file(path, sqlfile):
                 with open(os.path.join(path, 'INPUT_' + sqlfile.split("_")[0] + '_db_patch') + '.txt', 'a') as fa:
                     for i in range(start_line_no, end_line_no):
                         if all_lines[i].startswith("@"):
-                            sixth = 'JIRA|' + first + '|' + second + '|' + third + '|' + fourth + '|' + fifth + '|' + all_lines[i].split("@")[1].strip()
+                            numb = numb + 1
+                            sixth = str(numb) + '|' + 'JIRA|' + first + '|' + second + '|' + third + '|' + fourth + '|' + fifth + '|' + all_lines[i].split("@")[1].strip()
                             fa.write("%s \n" % sixth)
                     fa.close()
             if current_line.startswith("/"):
                 with open(os.path.join(path, 'INPUT_' + sqlfile.split("_")[0] + '_db_patch') + '.txt', 'a') as fa:
-                    sixth = 'RECOMPILE|' + first + '|' + second + '|' + third + '|' + fourth + '|' + fifth
+                    numb = numb + 1
+                    sixth = str(numb) + '|' + 'RECOMPILE|' + first + '|' + second + '|' + third + '|' + fourth + '|' + fifth
                     fa.write("%s \n" % sixth)
                     fa.close()
 
