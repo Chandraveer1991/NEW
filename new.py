@@ -19,7 +19,7 @@ def input_file(path, sqlfile):
                 third = all_lines[current_line_no + 2].split("PROMPT")[1].strip()
             if current_line.startswith("@") and not all_lines[current_line_no - 2].startswith("@"):
                 fourth = all_lines[current_line_no - 3].split("PROMPT")[1].strip()
-            if current_line.startswith("set"):
+            if current_line.startswith("set serveroutput"):
                 fourth = all_lines[current_line_no - 2].split("PROMPT")[1].strip()
             if current_line.startswith("@") and not all_lines[current_line_no + 2].startswith("@"):
                 fifth = all_lines[current_line_no + 2].split("PROMPT")[1].strip()
