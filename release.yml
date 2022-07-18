@@ -1,0 +1,28 @@
+
+.publish_release_ant:
+  extends: 
+    - .global_template_ant
+    - .release_rules_template
+  variables:
+    DEPLOY_FILE_MAVEN_PIPELINE: "release"
+    SBC: "true"
+    UBSCTL_FINGERPRINT_ARTIFACTS: "secure_build_chain_artifacts/*"
+  script:
+    - !reference [.bash, functions]
+    - !reference [.global_eva, linux_fetch_secrets_via_vault]
+    - !reference [.ant_build, version_release]
+    - !reference [.ant_build, build_release]
+    - !reference [.ant_build_custom, post_build_release]
+    - !reference [.ant_build, script_release_archive]
+    - !reference [.ant_build, script_upload]
+  after_script:
+    - !reference [.release_common_template_ant_SBC_verify,after_script]
+  artifacts:
+    paths:
+    - $CI_PROJECT_DIR/*.tar.gz
+    - secure_build_chain_artifacts
+    - $ANT_ARTIFACTS
+    when: always
+    reports:
+      dotenv: ant_dynvar_$CI_JOB_ID.env 
+

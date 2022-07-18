@@ -1,0 +1,24 @@
+
+.publish_snapshot_ant:
+  extends: 
+    - .global_template_ant
+    - .develop_snapshot_rules_template
+  variables:
+    DEPLOY_FILE_MAVEN_PIPELINE: "snapshot"
+  script:
+    - !reference [.bash, functions]
+    - !reference [.global_eva, linux_fetch_secrets_via_vault]
+    - !reference [.ant_build, version_snapshot]
+    - !reference [.ant_build, build_snapshot]
+    - !reference [.ant_build_custom, post_build_snapshot]
+    - !reference [.ant_build, script_snapshot_archive]
+    - !reference [.ant_build, script_upload]
+  artifacts:
+    paths:
+    - $CI_PROJECT_DIR/*.tar.gz
+    - $ANT_ARTIFACTS
+    when: always
+    reports:
+      dotenv: ant_dynvar_$CI_JOB_ID.env 
+
+
