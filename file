@@ -1,0 +1,684 @@
+.global_template_maven:
+  # Use interruptible to indicate that a running job should be canceled if made redundant by a newer pipeline run. https://docs.gitlab.com/ee/ci/yaml/README.html#interruptible 
+  interruptible: true
+  cache:
+    - !reference [.maven_development_cache, cache]
+  # More info about images https://devcloud.ubs.net/ubs-ag/gt/ib-it/ib-tech-gb-cross-product/devops-tools/aa45252-gbdevops/docker-base-image
+  # For projects where maven wrapper  is not used please used image container-registry.ubs.net/ubs/gbdevops/docker-base-image-maven-3.6.3-openjdk-1.8:v3.4
+  image: container-registry.ubs.net/ubs/gbdevops/docker-base-image-openjdk-1.8:v3.4
+  # Add caching per CI_COMMIT_REF_NAME to solved problem with big cache  
+  variables: 
+    # If a cache with this tag is not found, you can use CACHE_FALLBACK_KEY to specify a cache to use when none exists.
+    CACHE_FALLBACK_KEY: $CI_DEFAULT_BRANCH
+    # support submodules
+    GIT_SUBMODULE_STRATEGY: recursive   
+    # -B, --batch-mode - Run in non-interactive (batch) mode
+    # -e, --errors - Produce execution error messages
+    # -U, --update-snapshots - Forces a check for updated releases and snapshots on remote repositories -DNEXUS_USER=$NEXUS_USER -DNEXUS_PASSWORD=$NEXUS_PASSWORD
+    MAVEN_CLI_OPTS: "-B -e -U -Dmaven.repo.local=mavencache -s settings.xml -DNEXUS_USER=$NEXUS_USER -DNEXUS_PASSWORD=$NEXUS_PASSWORD"
+    # add option to provide user and password or url to settings with credentials -s settings.xml -DskipTests -Dmaven.test.skip=true
+    MAVEN_EXTRA_PARAMETERS_SNAPSHOT: ""    # -DskipTests -Dmaven.test.skip=true
+    MAVEN_EXTRA_PARAMETERS_RELEASE: "-DskipTests -Dscoverage.skip"
+    MAVEN_REPOSITORY_ID_SNAPSHOT: ""    # defined id for snapshot repo if settings.xml not exists in your repo from distributionManagement in pom.xml
+    MAVEN_REPOSITORY_ID_RELEASE: ""     # defined id for release repo if settings.xml not exists in your repo from distributionManagement in pom.xml
+    MAVEN_NEO_SETTINGS_NEEDED: "false"    # variable dedicated for NEO projects which reusing GB template
+    MAVEN_CUSTOM_PARAMETERS_SNAPSHOT: ""   # custom parameters requrired to build specific maven repos
+    MAVEN_CUSTOM_PARAMETERS_RELEASE: ""   # custom parameters requrired to build specific maven repos
+    MAVEN_CUSTOM_PROPERTIES_SNAPSHOT: ""   # custom properties like -Dtest=2344 -Dtest2=2323 which should be put inside pom.xml
+    MAVEN_CUSTOM_PROPERTIES_RELEASE: ""   # custom properties like -Dtest=2344 -Dtest2=2323 which should be put inside pom.xml
+    MAVEN_CUSTOM_PROPERTIES_FROM_FILE_PATH_SNAPSHOT: ""   # add option to read from file properties which should be updated in pom.xml Example every new line include properties like -Dtest2=2323 
+    MAVEN_CUSTOM_PROPERTIES_FROM_FILE_PATH_RELEASE: ""   # add option to read from file properties which should be updated in pom.xml Example every new line include properties like -Dtest2=2323 
+    MAVEN_CUSTOM_VERSION_SNAPSHOT: ""   # custom parameters which give option to replace builded SNAPSHOT VERSION
+    MAVEN_CUSTOM_VERSION_RELEASE: ""    # custom parameters which give option to replace builded RELEASE VERSION
+    MAVEN_FEATURE_BRANCH_VERSION: "false"    # Add feature to choose SNAPSHOT version $BRANCH.$CI_COMMIT_SHORT_SHA-SNAPSHOT or $BRANCH-SNAPSHOT useful in NEO projects
+    MAVEN_CUSTOM_INSTALL_BEFORE_DEPLOY_PARAMETERS_SNAPSHOT: ""    #If you using INSTALL_BEFORE_DEPDENDENCY_CHECK == true you could defined dedicated Parameters only for install phase
+    MAVEN_CUSTOM_INSTALL_BEFORE_DEPLOY_PARAMETERS_RELEASE: ""    #If you using INSTALL_BEFORE_DEPDENDENCY_CHECK == true you could defined dedicated Parameters only for install phase
+    MAVEN_FEATURE_MULTIREPOUPLOAD_VIA_PROFILES: ""    # Add feature which give option to upload the same artifact to many nexus repositories - activation when MAVEN_FEATURE_MULTIREPOUPLOAD_VIA_PROFILES is like "repo_a,repo_b" where repo_a and repo_b are name of profile in project comma seperated
+    PROJECT_ACCESS_TOKEN: ""    #add option to create tag after release for dynamic multi projects pipelines
+    MAVEN_TAG_ALREADY_EXIST: "true"   # add option tu build relase without uploading to nexus when tag is already created but we want trigeer release stages again
+    # add option to provide path to pom.xml -> default in root
+    where_is_pom: "$CI_PROJECT_DIR"    # to solve issue with spring https://github.com/spring-projects/spring-framework/issues/19869
+    # add option to build via maven or via maven wrapper
+    MAVEN_WRAPPER: "true"
+    MAVEN_UNIT_TEST: "true"    # by default unit test check enabled
+    MAVEN_IT_TEST: "true"    # by default integration test check enabled
+    MAVEN_PGP_TEST: "false"
+    POM_VERSION_ENABLED: "false"   # custom option which generate artifact with version from pom by default disabled
+    FEATURE_BRANCH_SEMVER: "false" # Option to prefix snapshot versions with branch name + version in pom
+    # optional jobs by default disabled
+    SONAR_SCAN: "false"   # option to enable scan sonar check under checks stage validation via quality gate setup in sonar server
+    SONAR_REPORT_UPLOAD: "false"   # option to enable sonar report after release for every release under report stage
+    FORTIFY_REPORT_UPLOAD: "false"   # option to enable fortify report after release for every release under report stage  - maven approach more /fortify/maven.yml
+    DYNAMIC_MUTLI_PROJECT_PIPELINE_RELEASE: "false"
+    USE_V_IN_VERSION: "true"      # option to build release without v Example craation of tag like v1.2.3 produce release artifact version 1.2.3 on nexus
+    MAVEN_SKIP_DEPDENDENCY_CHECK: "false"       # option to disabled depedencies check before relase
+    INSTALL_BEFORE_DEPDENDENCY_CHECK: "false" # Before calling the main build but after the maven veversion set, call maven install to resolve common issues
+    SKIP_DEPLOY_TO_NEXUS: "false"
+    SBC: "true"
+    MVN_SETTINGS: "" # If settings.xml is stored as a variable, mention the name of the variable and this will be copied for the build to operate 
+    # Instruct Testcontainers to use the daemon of DinD.
+    DOCKER_HOST: "tcp://docker:2376"
+    # Improve performance with overlayfs.
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"  
+  tags:
+     # Run on AKS runner
+     - kubernetes
+  extends:
+    - .default-retry   # global_gitlab_rules/common_rules.yml
+  #Add services dind to support testcontainers https://www.testcontainers.org/supported_docker_environment/continuous_integration/gitlab_ci/
+  services:
+    - name: container-registry.ubs.net/ubs/gbdevops/docker-base-image-dind-19.03.12:v1.0
+      alias: docker
+      command:
+        - /bin/sh
+        - -c
+        - |
+          cp /etc/ssl/certs/ca-certificates.crt /usr/local/share/ca-certificates/ca-certificates.crt
+          update-ca-certificates
+          dockerd-entrypoint.sh
+          awk -v cmd='openssl x509 -noout -subject' '/BEGIN/{close(cmd)};{print | cmd}' < /etc/ssl/certs/ca-certificates.crt || exit
+
+
+
+##################################################################
+##################### DEVELEPMENT PIPELINE PART ################## 
+##################################################################
+
+.develop_common_template_maven:
+  before_script:
+    # Show all gitlab predefined variables
+    - !reference [.global_eva, linux_fetch_secrets_via_vault]
+    - >
+      if [[ ! -z "$MVN_SETTINGS" ]]; then
+        echo "$MVN_SETTINGS" > ${CI_PROJECT_DIR}/settings.xml
+        #cat ${CI_PROJECT_DIR}/settings.xml
+      fi
+    - >
+      if [[ "$EVA_INTEGRATION" == "true" ]]; then
+        export MAVEN_CLI_OPTS="$MAVEN_CLI_OPTS -DNEXUS_USER=$NEXUS_USER -DNEXUS_PASSWORD=$NEXUS_PASSWORD"
+      fi
+    # part used when EVA INTEGRATION is false
+    - >
+      if [[ "$NEXUS_PASSWORD" == "" || "$NEXUS_PASSWORD" == "$NEXUS_PASSWORD_64" ]]; then
+        NEXUS_PASSWORD=$(echo "$NEXUS_PASSWORD_64" | base64 -d)
+      fi
+    # From maven 3.8.1 maven by default block http repositories, below part which unlock that
+    - >
+      if [[ -f "/opt/apache-maven/conf/settings.xml" ]]; then
+        echo "Unlock maven to download from http repositories"
+        sed -i 's/<blocked>.*<\/blocked>/<blocked>false<\/blocked>/' /opt/apache-maven/conf/settings.xml || true
+      fi
+    - |
+        cat <<EOF > settings_tmp.xml
+        <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+             <servers>
+                <server>
+                  <id>${MAVEN_REPOSITORY_ID_SNAPSHOT}</id>
+                  <username>${NEXUS_USER}</username>
+                  <password>${NEXUS_PASSWORD}</password>
+                </server>
+                <server>
+                  <id>${MAVEN_REPOSITORY_ID_RELEASE}</id>
+                  <username>${NEXUS_USER}</username>
+                  <password>${NEXUS_PASSWORD}</password>
+                </server>
+            </servers>
+            <mirrors>
+                <mirror>
+                    <id>central-proxy2</id>
+                    <name>CFT Nexus</name>
+                    <url>http://cft-nexus.ldn.swissbank.com:8081/nexus/content/repositories/public/</url>
+                    <mirrorOf>*,!ubsdeploy-nexus-release,!ubsdeploy-nexus-snapshot,!prime-repo,!cft-nexus,!cft-nexus-public,!nexus-oce</mirrorOf>
+                </mirror>
+            </mirrors>  
+        </settings>
+        EOF
+    - >
+      if [[ ! -f $CI_PROJECT_DIR/settings.xml ]]; then
+        if [[ $MAVEN_NEO_SETTINGS_NEEDED == "true" ]]; then
+          curl -s -f "${CI_API_V4_URL}/projects/68052/repository/files/java%2Fmaven-settings-ubs-neo.xml/raw?ref=master&private_token=${PROJECT_ACCESS_TOKEN}" -o ${CI_PROJECT_DIR}/settings.xml
+        else
+          if [[ $MAVEN_REPOSITORY_ID_SNAPSHOT == "" ]]; then
+            echo " Please defined MAVEN_REPOSITORY_ID_SNAPSHOT"
+            exit 1
+          fi
+          if [[ $MAVEN_REPOSITORY_ID_RELEASE == "" ]]; then
+            echo " Please defined MAVEN_REPOSITORY_ID_RELEASE"
+            exit 1
+          fi
+          mv settings_tmp.xml settings.xml
+        fi
+      fi
+    # setup maven_cli; wrapper or maven
+    - >
+        if [[ $MAVEN_WRAPPER == "true" ]]; then
+          echo "Maven wrapper is used"
+          chmod +x mvnw
+          export MAVEN_USER_HOME=maven_wrapper
+          export maven_cli="./mvnw"
+          #fix place for distributionUrl from nexus-tp.ubs.net to it4it-nexus-tp-repo.swissbank.com
+          if [[ $(cat $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties | grep distributionUrl | grep it4it | wc -l) == "0" ]]; then
+            maven_version=$(cat $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties | grep distributionUrl | sed -nre 's/^[^0-9]*(([0-9]+\.)*[0-9]+).*/\1/p')
+            echo $maven_version
+            sed -i '/distributionUrl/d' $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+            echo "" >> $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+            echo "distributionUrl=https://it4it-nexus-tp-repo.swissbank.com/repository/public-maven/org/apache/maven/apache-maven/$maven_version/apache-maven-$maven_version-bin.zip" >> $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          fi
+          sed -i '/wrapperUrl/d' $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          echo "" >> $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          echo "wrapperUrl=https://it4it-nexus-tp-repo.swissbank.com/repository/public-maven/io/takari/maven-wrapper/0.5.6/maven-wrapper-0.5.6.jar" >> $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          cat $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          sed -i 's+http://nexus.ubs.net/content/groups/public/+https://it4it-nexus-tp-repo.swissbank.com/repository/public-maven+g' $CI_PROJECT_DIR/settings.xml
+          echo "$maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.version -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT"
+          $maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.version -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+        else
+          echo "Maven wrapper is NOT used"
+          export maven_cli="mvn"
+          echo "$maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.version -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT"
+          $maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.version -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+        fi
+    - MAVEN_PROJECT_MODULES=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.modules -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT | sed s," ",,g | sed s,"<modules/>",,g | sed s,"<string>",,g | sed s,"</string>",,g | sed s,"<strings>",,g | sed s,"</strings>",,g)
+    - MAVEN_PROJECT_VERSION=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.version -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT)
+    - MAVEN_PROJECT_NAME=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.artifactId -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT)
+    - echo "maven_artifact_id=$MAVEN_PROJECT_NAME" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+    - echo $MAVEN_PROJECT_NAME
+    - MAVEN_GROUP_NAME=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.groupId -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT)
+    - echo "maven_artifact_groupid=$MAVEN_GROUP_NAME" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+    - echo $MAVEN_PROJECT_VERSION
+    - echo $MAVEN_GROUP_NAME
+    - echo "$CI_COMMIT_BRANCH"
+    #Add feature to choose SNAPSHOT version $BRANCH.$CI_COMMIT_SHORT_SHA-SNAPSHOT or $BRANCH-SNAPSHOT useful in NEO projects
+    - >
+        if [[ $MAVEN_FEATURE_BRANCH_VERSION == "true" ]]; then
+          echo "Build artifact version like BRANCH-SNAPSHOT"
+          export artifact_version="$CI_COMMIT_REF_SLUG-SNAPSHOT"           
+        else
+          echo "Build artifact version like BRANCH.CI_COMMIT_SHORT_SHA-SNAPSHOT"
+          export artifact_version="$CI_COMMIT_REF_SLUG.$CI_COMMIT_SHORT_SHA-SNAPSHOT"
+        fi
+    - >
+        if [[ $MAVEN_PROJECT_VERSION == *-SNAPSHOT ]]; then
+          echo "${MAVEN_PROJECT_VERSION}"
+          echo "There is a snapshot version in pom.xml. The build can continue."
+        else
+          echo "${MAVEN_PROJECT_VERSION}"
+          echo "There is a release version in pom.xml. The build cannot continue. Please fix the version parameter in pom.xml."
+          exit 1
+        fi
+    - >
+        if [[ $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT ]]; then
+          for param in $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+          do
+            param_one=$(echo $param | cut -d= -f1 | cut -c 3-)
+            param_two=$(echo $param | cut -d= -f2)
+            echo "$maven_cli versions:set-property -Dproperty=$param_one -DnewVersion=$param_two -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT"
+            $maven_cli versions:set-property -Dproperty=$param_one -DnewVersion=$param_two -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+          done
+          cat $where_is_pom/pom.xml
+        fi
+    - >
+        if [[ $MAVEN_CUSTOM_PROPERTIES_FROM_FILE_PATH_SNAPSHOT ]]; then
+          while read param; do
+            param_one=$(echo $param | cut -d= -f1 | cut -c 3-)
+            param_two=$(echo $param | cut -d= -f2)
+            echo "$maven_cli versions:set-property -Dproperty=$param_one -DnewVersion=$param_two -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT"
+            $maven_cli versions:set-property -Dproperty=$param_one -DnewVersion=$param_two -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+          done <$MAVEN_CUSTOM_PROPERTIES_FROM_FILE_PATH_SNAPSHOT
+          cat $where_is_pom/pom.xml
+        fi
+
+.publish_maven_script_coverage:
+  script:
+    # calculate coverage
+    - >
+      if [[ ! -z $(find $CI_PROJECT_DIR -path '*/target/scoverage.xml' -type f) ]]; then
+        printf "  Instructions: %.2f%%\n" "$(sed -n 's/^statement-count.*statement-rate="\([0-9]\+\.[0-9]\+\)" .*$/\1/p' $where_is_pom/target/scoverage.xml)"
+      elif [[ ! -z $(find $CI_PROJECT_DIR -path '*/site/jacoco/*.csv' -type f) ]]; then
+        if [[ "$MAVEN_PROJECT_MODULES" == "" ]]; then
+          echo "Checking $where_is_pom/target/site/jacoco/jacoco.csv"
+        else
+          mkdir -p $where_is_pom/target/site/jacoco
+          echo "GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED" > $where_is_pom/target/site/jacoco/jacoco_combined.csv_tmp
+          for jacoco in $(find $CI_PROJECT_DIR -path '*/site/jacoco/*.csv' -type f)
+          do
+            echo "Checking $jacoco"
+            tail -n+2 -q $jacoco >> $where_is_pom/target/site/jacoco/jacoco_combined.csv_tmp
+          done
+          mv  $where_is_pom/target/site/jacoco/jacoco_combined.csv_tmp $where_is_pom/target/site/jacoco/jacoco.csv
+        fi
+        awk -F ',' '{ inst += $4 + $5; inst_covered += $5; br += $6 + $7; br_covered += $7; line += $8 + $9; line_covered += $9; comp += $10 + $11; comp_covered += $11; meth += $12 + $13; meth_covered += $13; } END { print "Code Coverage Summary:"; printf "  Instructions: %.2f% (%d/%d)\n", 100*inst_covered/inst, inst_covered, inst; printf "  Branches: %.2f% (%d/%d)\n", 100*br_covered/br, br_covered, br; printf "  Lines: %.2f% (%d/%d)\n", 100*line_covered/line, line_covered, line; printf "  Complexity: %.2f% (%d/%d)\n", 100*comp_covered/comp, comp_covered, comp; printf "  Methods: %.2f% (%d/%d)\n", 100*meth_covered/meth, meth_covered, meth; }' $where_is_pom/target/site/jacoco/jacoco.csv || true
+      else
+        echo "Skip Jacoco and Scala coverage"
+      fi
+    
+
+.maven_coverage:
+  #coverage: '/Total.*?([0-9]{1,3})%/'
+  coverage: '/^\s*Instructions:\s*\d+.\d+\%/'
+
+.maven_metrics:
+  script:
+    - echo "files $(find . -type f -name "*.java" | wc -l)" >> metrics.txt
+    - echo "code_lines $(find . -type f -name "*.java" | xargs cat | wc -l)" >> metrics.txt
+    - echo "todo_occurrences $(find . -type f | xargs grep TODO | wc -l)" >> metrics.txt
+
+
+.publish_snapshot_maven_script_version:
+  script:
+    - >
+      if [[ $POM_VERSION_ENABLED == "true" ]]; then
+        if [[ $MAVEN_CUSTOM_VERSION_SNAPSHOT == "" ]]; then
+          echo "POM_VERSION_ENABLED - snapshot version from pom.xml"
+          echo "maven_artifact_version=$MAVEN_PROJECT_VERSION" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env 
+        else
+          if [ $CI_MERGE_REQUEST_IID ]; then
+            $maven_cli org.codehaus.mojo:versions-maven-plugin:2.8.1:set -DnewVersion=$artifact_version -DprocessAllModules=true -DgenerateBackupPoms=false -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+            echo "maven_artifact_version=$artifact_version" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+          fi
+          $maven_cli org.codehaus.mojo:versions-maven-plugin:2.8.1:set -DnewVersion=$MAVEN_CUSTOM_VERSION_SNAPSHOT -DprocessAllModules=true -DgenerateBackupPoms=false -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+          echo "POM_VERSION_ENABLED - snapshot version from MAVEN_CUSTOM_VERSION_SNAPSHOT"
+          echo "maven_artifact_version=$MAVEN_CUSTOM_VERSION_SNAPSHOT" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env 
+        fi
+      elif [[ $FEATURE_BRANCH_SEMVER == "true" ]]; then
+          if [[ $CI_COMMIT_BRANCH == master* || $CI_COMMIT_BRANCH == main* ]]; then
+            echo "Not adjusting master branch , as the current version is $MAVEN_PROJECT_VERSION "
+            echo "maven_artifact_version=$MAVEN_PROJECT_VERSION" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env 
+          else
+            export feature_branch_withpom="$(echo $CI_COMMIT_REF_SLUG-$MAVEN_PROJECT_VERSION)"
+            echo "Feature branch semver enabled $feature_branch_withpom"
+            $maven_cli org.codehaus.mojo:versions-maven-plugin:2.8.1:set -DnewVersion=$feature_branch_withpom -DprocessAllModules=true -DgenerateBackupPoms=false -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+            echo "maven_artifact_version=$feature_branch_withpom" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env 
+         fi
+      else
+        if [[ $MAVEN_CUSTOM_VERSION_SNAPSHOT == "" ]]; then
+          $maven_cli org.codehaus.mojo:versions-maven-plugin:2.8.1:set -DnewVersion=$artifact_version -DprocessAllModules=true -DgenerateBackupPoms=false -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+          echo "maven_artifact_version=$artifact_version" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+          echo "Default snapshot version $artifact_version"
+        else
+          $maven_cli org.codehaus.mojo:versions-maven-plugin:2.8.1:set -DnewVersion=$MAVEN_CUSTOM_VERSION_SNAPSHOT -DprocessAllModules=true -DgenerateBackupPoms=false -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+          echo "Snapshot version from MAVEN_CUSTOM_VERSION_SNAPSHOT"
+          echo "maven_artifact_version=$artifact_version" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+        fi
+      fi
+  
+.publish_snapshot_maven_script_deploy:
+  script:
+    - >
+      if [[ $INSTALL_BEFORE_DEPDENDENCY_CHECK == "true" ]]; then
+        if [[ $MAVEN_CUSTOM_INSTALL_BEFORE_DEPLOY_PARAMETERS_SNAPSHOT == "" ]]; then
+          echo "$maven_cli install -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT"
+          $maven_cli install -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+        else
+          echo "$maven_cli install -f $where_is_pom/pom.xml $MAVEN_CUSTOM_INSTALL_BEFORE_DEPLOY_PARAMETERS_SNAPSHOT"
+          $maven_cli install -f $where_is_pom/pom.xml $MAVEN_CLI_OPTS $MAVEN_CUSTOM_INSTALL_BEFORE_DEPLOY_PARAMETERS_SNAPSHOT
+        fi
+      fi
+    # publish to snapshot repository
+    - >
+        if [[ "$SKIP_DEPLOY_TO_NEXUS" == "false" ]]; then
+          if [[ $MAVEN_FEATURE_MULTIREPOUPLOAD_VIA_PROFILES ]]; then
+            SAVEIFS=$IFS
+            IFS=","
+            for profile in $MAVEN_FEATURE_MULTIREPOUPLOAD_VIA_PROFILES
+            do
+              IFS=$SAVEIFS
+              echo $profile
+              MAVEN_PROJECT_REPO_URL=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.distributionManagement.snapshotRepository.url -q -DforceStdout -f $where_is_pom/pom.xml -P $profile $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT)
+              echo $MAVEN_PROJECT_REPO_URL
+              echo "maven_artifact_repo_url_$profile=$MAVEN_PROJECT_REPO_URL" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+              MAVEN_PROJECT_REPO_ID=$($maven cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.distributionManagement.snapshotRepository.id -q -DforceStdout -f $where_is_pom/pom.xml -P $profile $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT)
+              echo $MAVEN_PROJECT_REPO_ID
+              echo "maven_artifact_repo_id_$profile=$MAVEN_PROJECT_REPO_ID". >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+              if [[ $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME ]]; then
+                echo "$maven_cli clean deploy -f $where_is_pom/pom.xml $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT -P $profile -DskipTests -Dscoverage.skip $MAVEN_EXTRA_PARAMETERS_SNAPSHOT"
+                $maven_cli clean deploy -f $where_is_pom/pom.xml $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT -P $profile -DskipTests -Dscoverage.skip $MAVEN_EXTRA_PARAMETERS_SNAPSHOT
+              else
+                echo "$maven_cli clean org.jacoco:jacoco-maven-plugin:prepare-agent deploy-org.jacoco:jacoco-maven-plugin:report -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT -P $profile"
+                $maven_cli clean org.jacoco:jacoco-maven-plugin:prepare-agent deploy-org.jacoco:jacoco-maven-plugin:report -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT -P $profile
+              fi
+              echo "Deploy for $profile is done"
+            done
+          else
+            MAVEN_PROJECT_REPO_URL=$($maven_cli org.apache.maven.plugins:maven-helpplugin:3.2.0: evaluate -Dexpression=project.distributionManagement.snapshotRepository.url -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT)
+            echo $MAVEN_PROJECT_REPO_URL
+            echo "maven_artifact_repo_url=$MAVEN_PROJECT_REPO_URL" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+            MAVEN_PROJECT_REPO_ID=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0: evaluate -Dexpression=project.distribution Management.snapshotRepository.id -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT)
+            echo $MAVEN_PROJECT_REPO_ID
+            echo "maven_artifact_repo_id=$MAVEN_PROJECT_REPO_ID" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+            if [[ $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME ]]; then
+              echo "$maven_cli deploy -f $where_is_pom/pom.xml $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT -DskipTests -Dscoverage.skip $MAVEN_EXTRA_PARAMETERS_SNAPSHOT"
+              $maven_cli deploy -f $where_is_pom/pom.xml $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT -DskipTests -Dscoverage.skip $MAVEN_EXTRA_PARAMETERS_SNAPSHOT
+            else
+              echo "$maven_cli org.jacoco:jacoco-maven-plugin:prepare-agent deploy org.jacoco:jacoco-maven-plugin:report -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT"
+              $maven_cli org.jacoco:jacoco-maven-plugin:prepare-agent deploy org.jacoco:jacoco-maven-plugin:report -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT
+            fi
+          fi
+        fi
+    - >
+      if [[ $MAVEN_SKIP_DEPDENDENCY_CHECK == "true" ]]; then
+        echo "Skip dependency check active - exist option that you release with SNAPSHOT depedencies"
+      else
+        echo "$maven_cli org.apache.maven.plugins:maven-dependency-plugin:3.1.2:tree -f $where_is_pom/pom.xml -DoutputFile=$CI_PROJECT_DIR/mvn-tree.txt $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT"
+        $maven_cli org.apache.maven.plugins:maven-dependency-plugin:3.1.2:tree -f $where_is_pom/pom.xml -DoutputFile=$CI_PROJECT_DIR/mvn-tree.txt $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT || true
+      fi
+
+
+##################################################################
+##################### RELEASE PIPELINE PART ################## 
+##################################################################
+    
+.release_common_template_maven:
+  before_script:
+    # Show all gitlab predefined variables
+    - !reference [.global_eva, linux_fetch_secrets_via_vault]
+    - >
+      if [[ ! -z "$MVN_SETTINGS" ]]; then
+        echo "$MVN_SETTINGS" > ${CI_PROJECT_DIR}/settings.xml
+        #cat ${CI_PROJECT_DIR}/settings.xml
+      fi
+    - >
+      if [[ "$EVA_INTEGRATION" == "true" ]]; then
+        export MAVEN_CLI_OPTS="$MAVEN_CLI_OPTS -DNEXUS_USER=$NEXUS_USER -DNEXUS_PASSWORD=$NEXUS_PASSWORD"
+      fi
+    - >
+      if [[ "$NEXUS_PASSWORD" == "" || "$NEXUS_PASSWORD" == "$NEXUS_PASSWORD_64" ]]; then
+        NEXUS_PASSWORD=$(echo "$NEXUS_PASSWORD_64" | base64 -d)
+      fi
+    - >
+        if [[ $CI_COMMIT_REF_PROTECTED == "false" ]]; then
+          echo "Release was triggered on not protected branch. Please protect branch."
+          exit 1
+        fi
+    # From maven 3.8.1 maven by default block http repositories, below part which unlock that
+    - >
+      if [[ -f "/opt/apache-maven/conf/settings.xml" ]]; then
+        echo "Unlock maven to download from http repositories"
+        sed -i 's/<blocked>.*<\/blocked>/<blocked>false<\/blocked>/' /opt/apache-maven/conf/settings.xml || true
+      fi
+    - |
+        cat <<EOF > $CI_PROJECT_DIR/settings_tmp.xml
+        <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+             <servers>
+                <server>
+                  <id>${MAVEN_REPOSITORY_ID_SNAPSHOT}</id>
+                  <username>${NEXUS_USER}</username>
+                  <password>${NEXUS_PASSWORD}</password>
+                </server>
+                <server>
+                  <id>${MAVEN_REPOSITORY_ID_RELEASE}</id>
+                  <username>${NEXUS_USER}</username>
+                  <password>${NEXUS_PASSWORD}</password>
+                </server>
+            </servers>
+            <mirrors>
+                <mirror>
+                    <id>central-proxy2</id>
+                    <name>CFT Nexus</name>
+                    <url>http://cft-nexus.ldn.swissbank.com:8081/nexus/content/repositories/public/</url>
+                    <mirrorOf>*,!ubsdeploy-nexus-release,!ubsdeploy-nexus-snapshot,!prime-repo,!cft-nexus,!cft-nexus-public,!nexus-oce</mirrorOf>
+                </mirror>
+            </mirrors>  
+        </settings>
+        EOF
+    - >
+      if [[ ! -f $CI_PROJECT_DIR/settings.xml ]]; then
+        if [[ $MAVEN_NEO_SETTINGS_NEEDED == "true" ]]; then
+          curl -s -f "${CI_API_V4_URL}/projects/68052/repository/files/java%2Fmaven-settings-ubs-neo.xml/raw?ref=master&private_token=${PROJECT_ACCESS_TOKEN}" -o ${CI_PROJECT_DIR}/settings.xml
+        else
+          if [[ $MAVEN_REPOSITORY_ID_SNAPSHOT == "" ]]; then
+            echo " Please defined MAVEN_REPOSITORY_ID_SNAPSHOT"
+            exit 1
+          fi
+          if [[ $MAVEN_REPOSITORY_ID_RELEASE == "" ]]; then
+            echo " Please defined MAVEN_REPOSITORY_ID_RELEASE"
+            exit 1
+          fi
+          mv settings_tmp.xml settings.xml
+        fi
+      fi
+    # setup maven_cli; wrapper or maven
+    - >
+        if [[ $MAVEN_WRAPPER == "true" ]]; then
+          echo "Maven wrapper is used"
+          chmod +x mvnw
+          export MAVEN_USER_HOME=maven_wrapper
+          export maven_cli="./mvnw"
+          #fix place for distributionUrl from nexus-tp.ubs.net to it4it-nexus-tp-repo.swissbank.com
+          if [[ $(cat $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties | grep distributionUrl | grep it4it | wc -l) == "0" ]]; then
+            maven_version=$(cat $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties | grep distributionUrl | sed -nre 's/^[^0-9]*(([0-9]+\.)*[0-9]+).*/\1/p')
+            echo $maven_version
+            sed -i '/distributionUrl/d' $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+            echo "" >> $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+            echo "distributionUrl=https://it4it-nexus-tp-repo.swissbank.com/repository/public-maven/org/apache/maven/apache-maven/$maven_version/apache-maven-$maven_version-bin.zip" >> $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          fi
+          sed -i '/wrapperUrl/d' $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          echo "" >> $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          echo "wrapperUrl=https://it4it-nexus-tp-repo.swissbank.com/repository/public-maven/io/takari/maven-wrapper/0.5.6/maven-wrapper-0.5.6.jar" >> $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          cat $CI_PROJECT_DIR/.mvn/wrapper/maven-wrapper.properties
+          sed -i 's+http://nexus.ubs.net/content/groups/public/+https://it4it-nexus-tp-repo.swissbank.com/repository/public-maven+g' $CI_PROJECT_DIR/settings.xml
+          ./mvnw org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.version -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+        else
+          echo "Maven wrapper is NOT used"
+          export maven_cli="mvn"
+        fi
+    - $maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.modules -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PROPERTIES_RELEASE | sed s," ",,g | sed s,"<modules/>",,g | sed s,"<string>",,g | sed s,"</string>",,g | sed s,"<strings>",,g | sed s,"</strings>",,g
+    - MAVEN_PROJECT_MODULES=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.modules -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PROPERTIES_RELEASE | sed s," ",,g | sed s,"<modules/>",,g | sed s,"<string>",,g | sed s,"</string>",,g | sed s,"<strings>",,g | sed s,"</strings>",,g)
+    - $maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.version -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+    - MAVEN_PROJECT_VERSION=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.version -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE)
+    - $maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.artifactId -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+    - MAVEN_PROJECT_NAME=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.artifactId -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE)
+    - echo "maven_artifact_id=$MAVEN_PROJECT_NAME" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+    - echo $MAVEN_PROJECT_NAME
+    - $maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.groupId -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+    - MAVEN_GROUP_NAME=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.groupId -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE)
+    - echo "maven_artifact_groupid=$MAVEN_GROUP_NAME" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+    - echo $MAVEN_GROUP_NAME
+    - >
+        if [[ $MAVEN_CUSTOM_PROPERTIES_RELEASE ]]; then
+          for param in $MAVEN_CUSTOM_PROPERTIES_RELEASE
+          do
+            param_one=$(echo $param | cut -d= -f1 | cut -c 3-)
+            param_two=$(echo $param | cut -d= -f2)
+            echo "$maven_cli versions:set-property -Dproperty=$param_one -DnewVersion=$param_two -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE"
+            $maven_cli versions:set-property -Dproperty=$param_one -DnewVersion=$param_two -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+          done
+          cat $where_is_pom/pom.xml
+        fi
+    - >
+        if [[ $MAVEN_CUSTOM_PROPERTIES_FROM_FILE_PATH_RELEASE ]]; then
+          while read param; do
+            param_one=$(echo $param | cut -d= -f1 | cut -c 3-)
+            param_two=$(echo $param | cut -d= -f2)
+            echo "$maven_cli versions:set-property -Dproperty=$param_one -DnewVersion=$param_two -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE"
+            $maven_cli versions:set-property -Dproperty=$param_one -DnewVersion=$param_two -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+          done <$MAVEN_CUSTOM_PROPERTIES_FROM_FILE_PATH_RELEASE
+          cat $where_is_pom/pom.xml
+        fi
+    - echo "$CI_COMMIT_REF_PROTECTED"
+    - echo "$CI_COMMIT_TAG"
+
+
+.publish_release_maven_script_version:
+  script:
+    # Update version from tag
+    - >
+      if [[ $MAVEN_CUSTOM_VERSION_RELEASE == "" ]]; then
+        if [[ $USE_V_IN_VERSION == "false" ]]; then
+          without_v=$(echo $CI_COMMIT_REF_NAME | sed 's/v//')
+          $maven_cli org.codehaus.mojo:versions-maven-plugin:2.8.1:set -DnewVersion=$without_v -DartifactId=*  -DgroupId=* -DgeneratebackupPoms=false -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+          echo "Build release from tag without v $without_v"
+          echo "maven_artifact_version=$without_v" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+          export artifact_version=$without_v
+        else
+          $maven_cli org.codehaus.mojo:versions-maven-plugin:2.8.1:set -DnewVersion=$CI_COMMIT_REF_NAME -DgenerateBackupPoms=false -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+          echo "Build release from tag $CI_COMMIT_TAG"
+          echo "maven_artifact_version=$CI_COMMIT_REF_NAME" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+          export artifact_version=$CI_COMMIT_REF_NAME
+        fi
+      else
+        if [[ $MAVEN_CUSTOM_VERSION_RELEASE =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?(\.[0-9]+)?$ ]]; then echo "MAVEN_CUSTOM_VERSION_RELEASE=$MAVEN_CUSTOM_VERSION_RELEASE is ok"; else echo "Please provide proper tag like vX.Y.(Z).(Q)"; exit 1; fi
+        $maven_cli org.codehaus.mojo:versions-maven-plugin:2.8.1:set -DnewVersion=$MAVEN_CUSTOM_VERSION_RELEASE -DgenerateBackupPoms=false -DprocessAllModules=true -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+        echo "Build release from tag $MAVEN_CUSTOM_VERSION_RELEASE"
+        echo "maven_artifact_version=$MAVEN_CUSTOM_VERSION_RELEASE" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+        export artifact_version=$MAVEN_CUSTOM_VERSION_RELEASE
+      fi
+    # Checking SNAPSHOT depedencies
+    - >
+      if [[ $INSTALL_BEFORE_DEPDENDENCY_CHECK == "true" ]]; then
+        if [[ $MAVEN_CUSTOM_INSTALL_BEFORE_DEPLOY_PARAMETERS_SNAPSHOT == "" ]]; then
+          echo "$maven_cli install -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE"
+          $maven_cli install -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+        else
+          echo "$maven_cli install -f $where_is_pom/pom.xml $MAVEN_CUSTOM_INSTALL_BEFORE_DEPLOY_PARAMETERS_RELEASE"
+          $maven_cli install -f $where_is_pom/pom.xml $MAVEN_CLI_OPTS $MAVEN_CUSTOM_INSTALL_BEFORE_DEPLOY_PARAMETERS_RELEASE
+        fi
+      fi
+    - >
+      if [[ $MAVEN_SKIP_DEPDENDENCY_CHECK == "true" ]]; then
+        echo "Skip dependency check active - exist option that you release with SNAPSHOT depedencies"
+      else
+        echo "$maven_cli org.apache.maven.plugins:maven-dependency-plugin:3.1.2:tree -f $where_is_pom/pom.xml -DoutputFile=$CI_PROJECT_DIR/mvn-tree.txt $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE"
+        $maven_cli org.apache.maven.plugins:maven-dependency-plugin:3.1.2:tree -f $where_is_pom/pom.xml -DoutputFile=$CI_PROJECT_DIR/mvn-tree.txt $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+        if [[ $(cat $CI_PROJECT_DIR/mvn-tree.txt | grep SNAPSHOT | wc -l ) -gt 0 ]]; then
+        echo "Your project is using a dependencies with snapshot version. Please use only released dependencies."
+        exit 1
+       fi
+      fi
+
+
+.publish_release_maven_script_deploy:
+  script:
+    # Publish artifact to release repository
+    - >
+      if [[ "$SKIP_DEPLOY_TO_NEXUS" == "false" ]]; then
+        mkdir -p $CI_PROJECT_DIR/securerepo-main || true
+        if [[ $MAVEN_FEATURE_MULTIREPOUPLOAD_VIA_PROFILES ]]; then
+          SAVEIFS=$IFS
+          IFS=","
+          for profile in $MAVEN_FEATURE_MULTIREPOUPLOAD_VIA_PROFILES
+          do
+            IFS=$SAVEIFS
+            echo $profile
+            MAVEN_PROJECT_REPO_URL=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.distributionManagement.repository.url -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE -P $profile)
+            echo $MAVEN_PROJECT_REPO_URL
+            echo "maven_artifact_repo_url_$profile=$MAVEN_PROJECT_REPO_URL" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+            MAVEN_PROJECT_REPO_ID=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.distributionManagement.repository.id -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE -P $profile)
+            echo $MAVEN_PROJECT_REPO_ID
+            echo "maven_artifact_repo_id_$profile=$MAVEN_PROJECT_REPO_ID" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+            echo "$maven_cli clean deploy -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE -P $profile -DaltDeploymentRepository=local::default::file////$CI_PROJECT_DIR/securerepo-$profile"
+            $maven_cli clean deploy -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE -P $profile -DaltDeploymentRepository=local::default::file////$CI_PROJECT_DIR/securerepo-$profile | tee $CI_PROJECT_DIR/log_$CI_JOB_ID.txt
+            echo "Deploy for $profile is done"
+            echo "$maven_cli org.codehaus.mojo:wagon-maven-plugin:2.0.2:merge-maven-repos -Dwagon.source=file:///$CI_PROJECT_DIR/securerepo-$profile -Dwagon.target=$MAVEN_PROJECT_REPO_URL -Dwagon.targetId=$MAVEN_PROJECT_REPO_ID -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE -P $profile"
+            $maven_cli org.codehaus.mojo:wagon-maven-plugin:2.0.2:merge-maven-repos -Dwagon.source=file:///$CI_PROJECT_DIR/securerepo-$profile -Dwagon.target=$MAVEN_PROJECT_REPO_URL -Dwagon.targetId=$MAVEN_PROJECT_REPO_ID -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE -P $profile
+            rsync -a $CI_PROJECT_DIR/securerepo-$profile/ $CI_PROJECT_DIR/securerepo-main
+            rm -rf $CI_PROJECT_DIR/securerepo-$profile || true
+          done
+        else
+          MAVEN_PROJECT_REPO_URL=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.distributionManagement.repository.url -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE)
+          echo $MAVEN_PROJECT_REPO_URL
+          echo "maven_artifact_repo_url=$MAVEN_PROJECT_REPO_URL" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+          MAVEN_PROJECT_REPO_ID=$($maven_cli org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate -Dexpression=project.distributionManagement.repository.id -q -DforceStdout -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_SNAPSHOT $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_SNAPSHOT $MAVEN_CUSTOM_PROPERTIES_SNAPSHOT)
+          echo $MAVEN_PROJECT_REPO_ID
+          echo "maven_artifact_repo_id=$MAVEN_PROJECT_REPO_ID" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+          echo "$maven_cli deploy -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE  -DaltDeploymentRepository=local::default::file////$CI_PROJECT_DIR/securerepo-main"
+          $maven_cli deploy -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE  -DaltDeploymentRepository=local::default::file////$CI_PROJECT_DIR/securerepo-main | tee $CI_PROJECT_DIR/log_$CI_JOB_ID.txt
+          echo "$maven_cli org.codehaus.mojo:wagon-maven-plugin:2.0.2:merge-maven-repos -Dwagon.source=file:///$CI_PROJECT_DIR/securerepo-main -Dwagon.target=$MAVEN_PROJECT_REPO_URL -Dwagon.targetId=$MAVEN_PROJECT_REPO_ID -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE"
+          $maven_cli org.codehaus.mojo:wagon-maven-plugin:2.0.2:merge-maven-repos -Dwagon.source=file:///$CI_PROJECT_DIR/securerepo-main -Dwagon.target=$MAVEN_PROJECT_REPO_URL -Dwagon.targetId=$MAVEN_PROJECT_REPO_ID -f $where_is_pom/pom.xml $MAVEN_EXTRA_PARAMETERS_RELEASE $MAVEN_CLI_OPTS $MAVEN_CUSTOM_PARAMETERS_RELEASE $MAVEN_CUSTOM_PROPERTIES_RELEASE
+        fi
+      fi
+
+.publish_release_maven_script_secure_build_chain_artifacts:
+  script:
+    # Publish artifacts to local repository
+    - >
+        if [[ "$SBC" == "true" ]]; then
+          if [[ "$SKIP_DEPLOY_TO_NEXUS" == "false" ]]; then
+            mkdir -p $CI_PROJECT_DIR/securerepo-main 
+            echo "------------------- Collecting info about build artifacts --------------------------------"
+            if [ ! -f $CI_PROJECT_DIR/log_$CI_JOB_ID.txt ]; then
+              echo "log_$CI_JOB_ID.txt - file not found"
+            else
+              echo "log_$CI_JOB_ID.txt - file found"
+              if [[ $(cat $CI_PROJECT_DIR/log_$CI_JOB_ID.txt | grep 'deploy-file' | wc -l) -ne 0 ]]; then
+                echo "Checking deploy-file"
+                if [[ $(cat $CI_PROJECT_DIR/log_$CI_JOB_ID.txt | grep ' Uploading to ' | grep -v '.xml\|.sha1\|.md5\|.pom\|.module\|.sha256\|.sha512' | sed 's:/*$::' | uniq | wc -l) -ne 0 ]]; then
+                  echo "Checking Uploading to"
+                  cat $CI_PROJECT_DIR/log_$CI_JOB_ID.txt | grep ' Uploading to ' | grep -v '.xml\|.sha1\|.md5\|.pom\|.module\|.sha256\|.sha512' | sed 's:/*$::'| uniq  >> $CI_PROJECT_DIR/http_url_tmp.txt || true
+                  cat $CI_PROJECT_DIR/http_url_tmp.txt | grep -Eo "(http|https)://[a-zA-Z0-9./?=_%:-]*" | uniq >> $CI_PROJECT_DIR/http_url_sbc_tmp.txt || true
+                  cat $CI_PROJECT_DIR/http_url_sbc_tmp.txt | sort | uniq > $CI_PROJECT_DIR/http_url_sbc.txt
+                  cd $CI_PROJECT_DIR/securerepo-main
+                  if [[ $(cat $CI_PROJECT_DIR/http_url_sbc.txt | wc -l) -ne 0 ]]; then
+                    microdnf install wget || true
+                    for url in $(cat $CI_PROJECT_DIR/http_url_sbc.txt); do
+                      echo $url
+                      if [[ $SBC_PROTECTED_NEXUS_USERNAME == "" && $SBC_PROTECTED_NEXUS_PASSWORD == "" ]] ; then
+                        wget -r -q --no-parent -l1 --reject="index.html*" --tries=3 $url || true
+                      else
+                        wget -r -q --user $SBC_PROTECTED_NEXUS_USERNAME --password $SBC_PROTECTED_NEXUS_PASSWORD --no-parent -l1 --reject="index.html*" --tries=3 $url || true
+                      fi
+                    done
+                  fi
+                  find ./nexus-write.ldn.swissbank.com -name repositories -type d | xargs -I '{}' cp -r {} . || true
+                  rm -rf ./nexus* || true
+                fi
+              fi
+            fi      
+            find $CI_PROJECT_DIR/securerepo-main -type f \( -iname \*.xml -o -iname \*.md5 -o -iname \*.pom -o -iname \*.sha1 \) -delete
+            echo "-----------------------------------------------------------------------------------------"
+            cd $CI_PROJECT_DIR
+            ls -la $CI_PROJECT_DIR/securerepo-main
+            export UBSCTL_FINGERPRINT_ARTIFACTS=$(find ./securerepo-main -type f | tr '\n' ',')
+            echo "UBSCTL_FINGERPRINT_ARTIFACTS=$UBSCTL_FINGERPRINT_ARTIFACTS"
+            echo "UBSCTL_FINGERPRINT_ARTIFACTS_$CI_JOB_ID=$UBSCTL_FINGERPRINT_ARTIFACTS" >> $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env
+            echo "-----------------------------------------------------------------------------------------"
+          fi
+        fi
+
+
+#job requrired PROJECT_ACCESS_TOKEN
+.release_common_template_maven_tag:
+  after_script:
+    - >
+       if [[ $MAVEN_TAG_ALREADY_EXIST == "false" ]]; then
+         if [[ $MAVEN_CUSTOM_VERSION_RELEASE == "" ]]; then
+           echo "Skip tag MAVEN_CUSTOM_VERSION_RELEASE not provided"
+         else
+           curl -s -f -X POST "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/repository/tags?private_token=${PROJECT_ACCESS_TOKEN}&tag_name=${MAVEN_CUSTOM_VERSION_RELEASE}&ref=${CI_COMMIT_REF_NAME}"
+           echo "Tag ${MAVEN_CUSTOM_VERSION_RELEASE} created"
+         fi
+       else
+         echo "Skip tag"
+       fi
+    # - >
+    #    if [[ $SBC == "true" ]]; then
+    #      echo "----------------------------Fingerprint verification in progress--------------------------"
+    #      echo "Fingerprint of artifact by ubsctl still is not implemented by GCTO team"
+    #      export UBSCTL_FINGERPRINT_ARTIFACTS=$(cat $CI_PROJECT_DIR/maven_dynvar_$CI_JOB_ID.env | grep UBSCTL_FINGERPRINT_ARTIFACTS | cut -d'=' -f2)
+    #      /ubsctl_wrappers/ubsctl fingerprint verify $UBSCTL_FINGERPRINT_ARTIFACTS || true
+    #     echo "-----------------------------------------------------------------------------------------"
+    #    fi
+
+### color test ###
+      #  echo "Color test:"
+      #  echo "-----------"
+      #  echo -e "\033[30;1m This is   ansi_bold black\033[0;m"
+      #  echo -e "\033[31;1m This is     ansi_bold_red\033[0;m"
+      #  echo -e "\033[32;1m This is   ansi_bold green\033[0;m"
+      #  echo -e "\033[33;1m This is  ansi_bold yellow\033[0;m"
+      #  echo -e "\033[34;1m This is    ansi_bold blue\033[0;m"
+      #  echo -e "\033[35;1m This is ansi_bold magenta\033[0;m"
+      #  echo -e "\033[36;1m This is    ansi_bold cyan\033[0;m"
+      #  echo -e "\033[37;1m This is   ansi_bold white\033[0;m"
+      #  echo -e "\033[30m This is normal   ansi_black / \033[90m and the light   black variant\033[0;m"
+      #  echo -e "\033[31m This is normal     ansi_red / \033[91m and the light    red  variant\033[0;m"
+      #  echo -e "\033[32m This is normal   ansi_green / \033[92m and the light   green variant\033[0;m"
+      #  echo -e "\033[33m This is normal   ansi_yellow / \033[90m and the light   yellow variant\033[0;m"
+      #  echo -e "\033[34m This is normal   ansi_blue / \033[90m and the light   blue variant\033[0;m"
+      #  echo -e "\033[35m This is normal   ansi_magenta / \033[90m and the light   magenta variant\033[0;m"
+      #  echo -e "\033[36m This is normal   ansi_cyan / \033[90m and the light   cyan variant\033[0;m"
+      #  echo -e "\033[37m This is normal   ansi_white / \033[90m and the light   white variant\033[0;m"
